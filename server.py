@@ -6,9 +6,77 @@ from datetime import datetime
 import os
 import requests
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 
-def read_config(config_file='conf.ini'):
+def setup_logging():
+    """Setup comprehensive logging system"""
+    # Create logs directory if it doesn't exist
+    logs_dir = 'logs'
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+    
+    # Generate log filename with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_file = os.path.join(logs_dir, f'asm_export_{timestamp}.log')
+    
+    # Create logger
+    logger = logging.getLogger('asm_export')
+    logger.setLevel(logging.DEBUG)
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # File handler - detailed logs
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    
+    # Console handler - important messages only
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # Log file handler for SQL queries only
+    sql_log_file = os.path.join(logs_dir, f'sql_queries_{timestamp}.log')
+    sql_handler = RotatingFileHandler(
+        sql_log_file,
+        maxBytes=10*1024*1024,
+        backupCount=5,
+        encoding='utf-8'
+    )
+    sql_handler.setLevel(logging.DEBUG)
+    sql_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    sql_handler.setFormatter(sql_formatter)
+    
+    # Create separate logger for SQL
+    sql_logger = logging.getLogger('sql_logger')
+    sql_logger.setLevel(logging.DEBUG)
+    sql_logger.handlers.clear()
+    sql_logger.addHandler(sql_handler)
+    
+    logger.info(f"Logging initialized. Log file: {log_file}")
+    logger.info(f"SQL log file: {sql_log_file}")
+    
+    return logger, sql_logger
+
+def read_config(config_file='conf.ini', logger=None):
     """Read configuration from conf.ini file"""
+    if logger:
+        logger.info(f"Reading configuration from {config_file}")
+    
     config = configparser.ConfigParser()
     config.read(config_file)
     
@@ -16,27 +84,40 @@ def read_config(config_file='conf.ini'):
     required_sections = ['SQLSERVER', 'POSTGRESQL', 'EXPORT']
     for section in required_sections:
         if section not in config:
-            raise ValueError(f"Missing required section [{section}] in configuration file")
+            error_msg = f"Missing required section [{section}] in configuration file"
+            if logger:
+                logger.error(error_msg)
+            raise ValueError(error_msg)
     
     # Validate SQLSERVER settings
     sql_required = ['server', 'database', 'username', 'password', 'driver']
     for key in sql_required:
         if key not in config['SQLSERVER']:
-            raise ValueError(f"Missing required key '{key}' in [SQLSERVER] section")
+            error_msg = f"Missing required key '{key}' in [SQLSERVER] section"
+            if logger:
+                logger.error(error_msg)
+            raise ValueError(error_msg)
     
     # Validate POSTGRESQL settings
     pg_required = ['host', 'port', 'username', 'password']
     for key in pg_required:
         if key not in config['POSTGRESQL']:
-            raise ValueError(f"Missing required key '{key}' in [POSTGRESQL] section")
+            error_msg = f"Missing required key '{key}' in [POSTGRESQL] section"
+            if logger:
+                logger.error(error_msg)
+            raise ValueError(error_msg)
     
     # Optional database name with default
     if 'database' not in config['POSTGRESQL']:
         config['POSTGRESQL']['database'] = 'linebot'
+        if logger:
+            logger.info("Using default PostgreSQL database: linebot")
     
     # Optional table name with default
     if 'table' not in config['POSTGRESQL']:
         config['POSTGRESQL']['table'] = 'asm_data'
+        if logger:
+            logger.info("Using default PostgreSQL table: asm_data")
     
     # Validate EXPORT settings with defaults
     if 'txt_file' not in config['EXPORT']:
@@ -54,9 +135,15 @@ def read_config(config_file='conf.ini'):
     if 'url' not in config['WEBHOOK']:
         config['WEBHOOK']['url'] = ''
     
+    if logger:
+        logger.info("Configuration loaded successfully")
+        logger.debug(f"SQL Server: {config['SQLSERVER']['server']}/{config['SQLSERVER']['database']}")
+        logger.debug(f"PostgreSQL: {config['POSTGRESQL']['host']}/{config['POSTGRESQL']['database']}")
+        logger.debug(f"Webhook enabled: {config['WEBHOOK']['enabled']}")
+    
     return config
 
-def connect_sql_server(config):
+def connect_sql_server(config, logger=None):
     """Connect to SQL Server"""
     sql_config = config['SQLSERVER']
     connection_string = (
@@ -67,11 +154,15 @@ def connect_sql_server(config):
         f"PWD={sql_config['password']};"
         f"TrustServerCertificate=yes"
     )
+    if logger:
+        logger.debug(f"SQL Server connection string (password hidden): SERVER={sql_config['server']}; DATABASE={sql_config['database']}")
     return pyodbc.connect(connection_string)
 
-def connect_postgresql(config):
+def connect_postgresql(config, logger=None):
     """Connect to PostgreSQL"""
     pg_config = config['POSTGRESQL']
+    if logger:
+        logger.debug(f"PostgreSQL connection: host={pg_config['host']}, port={pg_config['port']}, database={pg_config['database']}")
     return psycopg2.connect(
         host=pg_config['host'],
         port=pg_config['port'],
@@ -80,32 +171,39 @@ def connect_postgresql(config):
         password=pg_config['password']
     )
 
-def execute_sql_query(sql_conn, query):
+def execute_sql_query(sql_conn, query, logger=None):
     """Execute SQL query and return data as DataFrame"""
+    if logger:
+        logger.debug("Executing SQL query...")
     cursor = sql_conn.cursor()
     cursor.execute(query)
     columns = [column[0] for column in cursor.description]
     data = cursor.fetchall()
     df = pd.DataFrame.from_records(data, columns=columns)
+    if logger:
+        logger.info(f"Query executed successfully. Retrieved {len(df)} rows")
     return df
 
-def create_postgresql_table(pg_conn, df, table_name):
+def create_postgresql_table(pg_conn, df, table_name, logger=None):
     """Create or recreate table in PostgreSQL with proper schema"""
     cursor = pg_conn.cursor()
     
     # Drop existing table if it exists
-    print(f"Dropping existing table {table_name} if exists...")
+    if logger:
+        logger.info(f"Dropping existing table {table_name} if exists...")
     cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
     cursor.execute(f"DROP SEQUENCE IF EXISTS {table_name}_id_seq CASCADE")
     pg_conn.commit()
     
     # Create sequence
-    print(f"Creating sequence {table_name}_id_seq...")
+    if logger:
+        logger.info(f"Creating sequence {table_name}_id_seq...")
     cursor.execute(f"CREATE SEQUENCE {table_name}_id_seq")
     pg_conn.commit()
     
     # Create table with proper schema
-    print(f"Creating table {table_name}...")
+    if logger:
+        logger.info(f"Creating table {table_name}...")
     create_table_sql = f"""
     CREATE TABLE {table_name} (
         id INTEGER PRIMARY KEY DEFAULT nextval('{table_name}_id_seq'::regclass),
@@ -145,20 +243,23 @@ def create_postgresql_table(pg_conn, df, table_name):
     pg_conn.commit()
     
     # Create indexes
-    print(f"Creating indexes...")
+    if logger:
+        logger.info(f"Creating indexes...")
     cursor.execute(f"CREATE INDEX idx_{table_name}_agent_id ON {table_name}(agent_id)")
     cursor.execute(f"CREATE INDEX idx_{table_name}_device_name ON {table_name}(device_name)")
     pg_conn.commit()
     
-    print(f"Table {table_name} created successfully with UNIQUE constraint on device_name")
+    if logger:
+        logger.info(f"Table {table_name} created successfully with UNIQUE constraint on device_name")
 
-def upsert_postgresql_data(pg_conn, df, table_name):
+def upsert_postgresql_data(pg_conn, df, table_name, logger=None):
     """Insert or update data in PostgreSQL table using device_name as key"""
     cursor = pg_conn.cursor()
     
     # Convert column names to match PostgreSQL table (device_name, ip_address, etc.)
     original_columns = df.columns.tolist()
-    print(f"Original columns from SQL Server: {original_columns}")
+    if logger:
+        logger.debug(f"Original columns from SQL Server: {original_columns}")
     
     # Mapping SQL Server columns to PostgreSQL columns
     column_mapping = {
@@ -194,7 +295,8 @@ def upsert_postgresql_data(pg_conn, df, table_name):
     
     # Rename columns in DataFrame
     df = df.rename(columns=column_mapping)
-    print(f"Converted columns: {df.columns.tolist()}")
+    if logger:
+        logger.debug(f"Converted columns: {df.columns.tolist()}")
     
     # Prepare column names for SQL (exclude id column)
     columns = [col for col in df.columns.tolist() if col != 'id']
@@ -214,29 +316,35 @@ def upsert_postgresql_data(pg_conn, df, table_name):
     DO UPDATE SET {update_clause}
     """
     
-    print(f"UPSERT SQL prepared with {len(columns)} columns")
+    if logger:
+        logger.debug(f"UPSERT SQL prepared with {len(columns)} columns")
     
     # Check which device_names already exist
     device_names = df['device_name'].tolist()
-    print(f"Total device_names to process: {len(device_names)}")
-    print(f"Sample device_names: {device_names[:5]}")
+    if logger:
+        logger.info(f"Total device_names to process: {len(device_names)}")
+        logger.debug(f"Sample device_names: {device_names[:5]}")
     
     if device_names:
         # Filter out None values
         valid_device_names = [dn for dn in device_names if dn is not None and dn != '']
-        print(f"Valid device_names (not None/empty): {len(valid_device_names)}")
+        if logger:
+            logger.debug(f"Valid device_names (not None/empty): {len(valid_device_names)}")
         
         if valid_device_names:
             check_sql = f"SELECT device_name FROM {table_name} WHERE device_name = ANY(%s)"
             cursor.execute(check_sql, (valid_device_names,))
             existing_devices = set(row[0] for row in cursor.fetchall())
-            print(f"Existing devices in database: {len(existing_devices)}")
+            if logger:
+                logger.info(f"Existing devices in database: {len(existing_devices)}")
         else:
             existing_devices = set()
-            print("No valid device_names found")
+            if logger:
+                logger.warning("No valid device_names found")
     else:
         existing_devices = set()
-        print("No device_names found in data")
+        if logger:
+            logger.warning("No device_names found in data")
     
     # Insert/Update data in batches
     batch_size = 1000
@@ -261,34 +369,37 @@ def upsert_postgresql_data(pg_conn, df, table_name):
             except Exception as e:
                 error_count += 1
                 if show_error_details and error_count <= 3:
-                    print(f"\nError processing row {idx} for device {device_name}: {str(e)}")
-                    print(f"Columns: {columns}")
-                    print(f"Row data length: {len(row_data)}")
-                    print(f"Row data: {row_data[:5]}...")  # Show first 5 values
-                    import traceback
-                    traceback.print_exc()
+                    if logger:
+                        logger.error(f"Error processing row {idx} for device {device_name}: {str(e)}")
+                        logger.error(f"Columns: {columns}")
+                        logger.error(f"Row data length: {len(row_data)}")
                 elif error_count == 4:
-                    print("\nSuppressing further error details (too many errors)...")
+                    if logger:
+                        logger.info("Suppressing further error details (too many errors)...")
                 pg_conn.rollback()
         
         pg_conn.commit()
-        print(f"Processed {min(i+batch_size, len(df))} / {len(df)} rows")
+        if logger:
+            logger.info(f"Processed {min(i+batch_size, len(df))} / {len(df)} rows")
     
     if error_count > 0:
-        print(f"\nWarning: {error_count} rows had errors during processing")
+        if logger:
+            logger.warning(f"{error_count} rows had errors during processing")
     
-    print(f"Successfully processed {len(df)} rows in PostgreSQL")
-    print(f"  - Inserted: {insert_count}")
-    print(f"  - Updated: {update_count}")
+    if logger:
+        logger.info(f"Successfully processed {len(df)} rows in PostgreSQL")
+        logger.info(f"  - Inserted: {insert_count}")
+        logger.info(f"  - Updated: {update_count}")
 
-def ensure_directory_exists(filename):
+def ensure_directory_exists(filename, logger=None):
     """Create directory if it doesn't exist"""
     directory = os.path.dirname(filename)
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
-        print(f"Created directory: {directory}")
+        if logger:
+            logger.info(f"Created directory: {directory}")
 
-def export_to_text(df, filename):
+def export_to_text(df, filename, logger=None):
     """Export DataFrame to text file with timestamp"""
     # Generate timestamp in yyyyMMddHHmmss format
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -297,12 +408,13 @@ def export_to_text(df, filename):
     base, ext = os.path.splitext(filename)
     timestamped_filename = f"{base}_{timestamp}{ext}"
     
-    ensure_directory_exists(timestamped_filename)
+    ensure_directory_exists(timestamped_filename, logger)
     df.to_csv(timestamped_filename, sep='\t', index=False, encoding='utf-8')
-    print(f"Data exported to {timestamped_filename}")
+    if logger:
+        logger.info(f"Data exported to {timestamped_filename}")
     return timestamped_filename
 
-def export_to_excel(df, filename, sheet_name):
+def export_to_excel(df, filename, sheet_name, logger=None):
     """Export DataFrame to Excel file with timestamp"""
     # Generate timestamp in yyyyMMddHHmmss format
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -311,12 +423,13 @@ def export_to_excel(df, filename, sheet_name):
     base, ext = os.path.splitext(filename)
     timestamped_filename = f"{base}_{timestamp}{ext}"
     
-    ensure_directory_exists(timestamped_filename)
+    ensure_directory_exists(timestamped_filename, logger)
     df.to_excel(timestamped_filename, sheet_name=sheet_name, index=False, engine='openpyxl')
-    print(f"Data exported to {timestamped_filename}")
+    if logger:
+        logger.info(f"Data exported to {timestamped_filename}")
     return timestamped_filename
 
-def post_to_feishu(df, webhook_url, csrf_token=None):
+def post_to_feishu(df, webhook_url, csrf_token=None, logger=None):
     """Post data to Feishu webhook - send each record individually"""
     try:
         # Mapping SQL Server columns to PostgreSQL columns (same as webhook)
@@ -358,7 +471,8 @@ def post_to_feishu(df, webhook_url, csrf_token=None):
         records = df_mapped.to_dict('records')
         
         # Print first record for debugging
-        print(f"First record sample: {records[0] if records else 'No records'}")
+        if logger:
+            logger.debug(f"First record sample: {records[0] if records else 'No records'}")
         
         # Prepare headers
         headers = {
@@ -397,27 +511,35 @@ def post_to_feishu(df, webhook_url, csrf_token=None):
                 if response.status_code == 200:
                     success_count += 1
                     if (idx + 1) % 100 == 0:
-                        print(f"Posted {idx + 1}/{len(records)} records to Feishu webhook")
+                        if logger:
+                            logger.info(f"Posted {idx + 1}/{len(records)} records to Feishu webhook")
                 else:
                     error_count += 1
-                    print(f"Failed to post record {idx + 1}. Status code: {response.status_code}")
-                    print(f"Response: {response.text}")
+                    if logger:
+                        logger.error(f"Failed to post record {idx + 1}. Status code: {response.status_code}")
+                        logger.error(f"Response: {response.text}")
             except Exception as e:
                 error_count += 1
-                print(f"Error posting record {idx + 1}: {str(e)}")
+                if logger:
+                    logger.error(f"Error posting record {idx + 1}: {str(e)}")
         
-        print(f"Successfully posted {success_count}/{len(records)} records to Feishu webhook")
-        if error_count > 0:
-            print(f"Failed to post {error_count} records")
+        if logger:
+            logger.info(f"Successfully posted {success_count}/{len(records)} records to Feishu webhook")
+            if error_count > 0:
+                logger.warning(f"Failed to post {error_count} records")
         
         return success_count > 0
     except Exception as e:
-        print(f"Error posting to Feishu webhook: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        if logger:
+            logger.error(f"Error posting to Feishu webhook: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
         return False
 
 def main():
+    # Setup logging
+    logger, sql_logger = setup_logging()
+    
     # SQL Query
     sql_query = """
 SELECT         s.Alias,s.DeviceName,s.IPAddress,s.OwnerID,c.SerialNumber,c.DomainName,c.LogonUser,i.Model,'' AS SystemType,c.AgentVersion,s.LastRespond, '' AS encrypted
@@ -450,80 +572,92 @@ where s.GroupID not in ('1')
 order by s.GroupID,c.ComputerType
     """
     
+    # Log SQL query
+    sql_logger.info("="*80)
+    sql_logger.info("SQL Query Executed:")
+    sql_logger.info(sql_query)
+    sql_logger.info("="*80)
+    
     try:
+        logger.info("Starting ASM Data Export Process")
+        
         # Read configuration
-        config = read_config()
-        print("Configuration loaded successfully")
+        config = read_config(logger=logger)
         
         # Connect to SQL Server
-        print("Connecting to SQL Server...")
-        sql_conn = connect_sql_server(config)
-        print("Connected to SQL Server")
+        logger.info("Connecting to SQL Server...")
+        sql_conn = connect_sql_server(config, logger)
+        logger.info("Connected to SQL Server successfully")
         
         # Execute query
-        print("Executing SQL query...")
-        df = execute_sql_query(sql_conn, sql_query)
-        print(f"Retrieved {len(df)} rows from SQL Server")
+        logger.info("Executing SQL query...")
+        df = execute_sql_query(sql_conn, sql_query, logger)
+        logger.info(f"Retrieved {len(df)} rows from SQL Server")
+        
+        # Log data sample
+        if len(df) > 0:
+            logger.debug(f"First row data: {df.iloc[0].to_dict()}")
         
         # Close SQL Server connection
         sql_conn.close()
+        logger.info("SQL Server connection closed")
         
         # Export to text file
-        print("\nExporting to text file...")
+        logger.info("Exporting to text file...")
         text_file = config['EXPORT']['txt_file']
-        export_to_text(df, text_file)
+        export_to_text(df, text_file, logger)
         
         # Export to Excel
-        print("\nExporting to Excel...")
+        logger.info("Exporting to Excel...")
         excel_file = config['EXPORT']['excel_file']
         sheet_name = config['EXPORT']['sheet_name']
-        export_to_excel(df, excel_file, sheet_name)
+        export_to_excel(df, excel_file, sheet_name, logger)
         
         # Post to Feishu webhook if enabled
         webhook_enabled = config['WEBHOOK'].get('enabled', 'false').lower() == 'true'
         webhook_url = config['WEBHOOK'].get('url', '')
         
-        print(f"\nWebhook enabled: {webhook_enabled}")
-        print(f"Webhook URL configured: {bool(webhook_url)}")
+        logger.info(f"Webhook enabled: {webhook_enabled}")
+        logger.info(f"Webhook URL configured: {bool(webhook_url)}")
         
         if webhook_enabled and webhook_url:
-            print("Posting to Feishu webhook...")
+            logger.info("Posting to Feishu webhook...")
             csrf_token = config['WEBHOOK'].get('csrf_token', '')
-            post_to_feishu(df, webhook_url, csrf_token)
+            post_to_feishu(df, webhook_url, csrf_token, logger)
         else:
-            print("Webhook posting skipped (not enabled or no URL configured)")
+            logger.info("Webhook posting skipped (not enabled or no URL configured)")
         
         # Connect to PostgreSQL (optional - if fails, continue without it)
         try:
-            print("\nConnecting to PostgreSQL...")
-            pg_conn = connect_postgresql(config)
-            print("Connected to PostgreSQL")
+            logger.info("Connecting to PostgreSQL...")
+            pg_conn = connect_postgresql(config, logger)
+            logger.info("Connected to PostgreSQL successfully")
             
             # Create table and insert data
             table_name = config['POSTGRESQL']['table']
-            print(f"\nVerifying table {table_name} in PostgreSQL...")
-            create_postgresql_table(pg_conn, df, table_name)
+            logger.info(f"Verifying table {table_name} in PostgreSQL...")
+            create_postgresql_table(pg_conn, df, table_name, logger)
             
-            print(f"\nInserting data into PostgreSQL...")
-            upsert_postgresql_data(pg_conn, df, table_name)
+            logger.info(f"Inserting data into PostgreSQL...")
+            upsert_postgresql_data(pg_conn, df, table_name, logger)
             
             # Close PostgreSQL connection
             pg_conn.close()
-            print("PostgreSQL connection closed")
+            logger.info("PostgreSQL connection closed")
         except Exception as pg_error:
-            print(f"\nWarning: PostgreSQL export failed: {str(pg_error)}")
+            logger.error(f"PostgreSQL export failed: {str(pg_error)}")
             import traceback
-            traceback.print_exc()
-            print("Continuing with text and Excel exports only...")
+            logger.error(traceback.format_exc())
+            logger.info("Continuing with text and Excel exports only...")
         
-        print("\n" + "="*50)
-        print("Data export completed successfully!")
-        print("="*50)
+        logger.info("="*50)
+        logger.info("Data export completed successfully!")
+        logger.info("="*50)
         
     except Exception as e:
-        print(f"\nError occurred: {str(e)}")
+        logger.error(f"Error occurred: {str(e)}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
