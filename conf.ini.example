@@ -8,12 +8,19 @@ driver = ODBC Driver 18 for SQL Server
 [POSTGRESQL]
 host = YOUR_POSTGRES_HOST
 port = 5432
-database = YOUR_POSTGRES_DATABASE
+database = linebot
 username = YOUR_POSTGRES_USERNAME
 password = YOUR_POSTGRES_PASSWORD
-table = system_devices
+table = asm_data
 
 [EXPORT]
 txt_file = output.txt
 excel_file = output.xlsx
 sheet_name = SystemDevices
+# Note: Timestamps will be automatically added to filenames in yyyyMMddHHmmss format
+# Example: output_20261027143025.txt
+
+[WEBHOOK]
+enabled = true
+url = https://ihaier.feishu.cn/base/automation/webhook/event/UqbCaf5GVwO6m9hnpGIchl3onBh
+csrf_token = 6703cb0a226899a8bbd56c0795a01f5a7a32a37b-1793093578

@@ -1,0 +1,186 @@
+{
+  "table_name": "asm_data",
+  "database": "linebot",
+  "columns": [
+    {
+      "name": "id",
+      "type": "INTEGER",
+      "constraint": "PRIMARY KEY",
+      "default": "nextval('asm_data_id_seq'::regclass)"
+    },
+    {
+      "name": "alias",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "device_name",
+      "type": "VARCHAR(255)",
+      "constraint": "UNIQUE",
+      "nullable": true
+    },
+    {
+      "name": "ip_address",
+      "type": "VARCHAR(50)",
+      "nullable": true
+    },
+    {
+      "name": "owner_id",
+      "type": "VARCHAR(50)",
+      "nullable": true
+    },
+    {
+      "name": "serial_number",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "domain_name",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "logon_user",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "model",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "system_type",
+      "type": "VARCHAR(100)",
+      "nullable": true
+    },
+    {
+      "name": "agent_version",
+      "type": "VARCHAR(50)",
+      "nullable": true
+    },
+    {
+      "name": "last_respond",
+      "type": "TIMESTAMP",
+      "nullable": true
+    },
+    {
+      "name": "encrypted",
+      "type": "VARCHAR(50)",
+      "nullable": true
+    },
+    {
+      "name": "group_name",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "computer_type",
+      "type": "VARCHAR(100)",
+      "nullable": true
+    },
+    {
+      "name": "firstname",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "lastname",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "address",
+      "type": "TEXT",
+      "nullable": true
+    },
+    {
+      "name": "remark",
+      "type": "TEXT",
+      "nullable": true
+    },
+    {
+      "name": "monitor_type",
+      "type": "VARCHAR(100)",
+      "nullable": true
+    },
+    {
+      "name": "answer",
+      "type": "TEXT",
+      "nullable": true
+    },
+    {
+      "name": "response_by",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "window_os",
+      "type": "VARCHAR(100)",
+      "nullable": true
+    },
+    {
+      "name": "window_os_full",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "nessus_agent",
+      "type": "VARCHAR(50)",
+      "nullable": true
+    },
+    {
+      "name": "asset_number",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "agent_id",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "staff_id",
+      "type": "VARCHAR(255)",
+      "nullable": true
+    },
+    {
+      "name": "over_month",
+      "type": "INTEGER",
+      "nullable": true
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "default": "CURRENT_TIMESTAMP",
+      "nullable": true
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "default": "CURRENT_TIMESTAMP",
+      "nullable": true
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_asm_data_agent_id",
+      "columns": ["agent_id"]
+    },
+    {
+      "name": "idx_asm_data_device_name",
+      "columns": ["device_name"]
+    }
+  ],
+  "constraints": [
+    {
+      "name": "asm_data_device_name_key",
+      "type": "UNIQUE",
+      "columns": ["device_name"]
+    }
+  ],
+  "sequence": {
+    "name": "asm_data_id_seq",
+    "type": "SEQUENCE"
+  }
+}
