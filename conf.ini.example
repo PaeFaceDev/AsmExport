@@ -1,0 +1,19 @@
+[SQLSERVER]
+server = YOUR_SQL_SERVER_HOST
+database = YOUR_DATABASE_NAME
+username = YOUR_SQL_USERNAME
+password = YOUR_SQL_PASSWORD
+driver = ODBC Driver 18 for SQL Server
+
+[POSTGRESQL]
+host = YOUR_POSTGRES_HOST
+port = 5432
+database = YOUR_POSTGRES_DATABASE
+username = YOUR_POSTGRES_USERNAME
+password = YOUR_POSTGRES_PASSWORD
+table = system_devices
+
+[EXPORT]
+txt_file = output.txt
+excel_file = output.xlsx
+sheet_name = SystemDevices
